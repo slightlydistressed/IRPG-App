@@ -35,13 +35,16 @@ aside {
   overflow-y:auto;
 }
 
-aside h2,h3 { 
-  margin:0; padding:0.75rem 1rem; border-bottom:1px solid #ddd; 
-}
+aside h2,h3 { margin:0; padding:0.75rem 1rem; border-bottom:1px solid #ddd; }
 
 nav button {
-  width:100%; border:none; background:none; padding:0.6rem 1rem;
-  text-align:left; cursor:pointer; border-bottom:1px solid #eee;
+  width:100%;
+  border:none;
+  background:none;
+  padding:0.6rem 1rem;
+  text-align:left;
+  cursor:pointer;
+  border-bottom:1px solid #eee;
 }
 nav button:hover { background:#f0f0f0; }
 nav .nested { padding-left:1.5rem; }
@@ -67,7 +70,9 @@ textarea {
 }
 
 .bookmark {
-  float:right; cursor:pointer; font-size:1.2rem;
+  float:right;
+  cursor:pointer;
+  font-size:1.2rem;
 }
 </style>
 </head>
@@ -76,85 +81,60 @@ textarea {
 
 <!-- -------------------- Sidebar -------------------- -->
 <aside>
-<h2>IRPG</h2>
-
-<h3>Recent</h3>
-<nav id="recentNav"></nav>
-
-<h3>Bookmarks</h3>
-<nav id="bookmarkNav"></nav>
-
-<h3>Table of Contents</h3>
-<nav id="tocNav"></nav>
+  <h2>IRPG</h2>
+  
+  <h3>Recent</h3>
+  <nav id="recentNav"></nav>
+  
+  <h3>Bookmarks</h3>
+  <nav id="bookmarkNav"></nav>
+  
+  <h3>Table of Contents</h3>
+  <nav id="tocNav"></nav>
 </aside>
 
 <!-- -------------------- Main Content -------------------- -->
 <main>
-<div class="pdf-pages"></div>
-<textarea placeholder="Notes..."></textarea>
+  <div class="pdf-pages"></div>
+  <textarea placeholder="Notes..."></textarea>
 </main>
 
-<!-- -------------------- PDF.js Module -------------------- -->
 <script type="module">
 import * as pdfjsLib from './pdf.mjs';
 
-// -------------------- PDF Setup --------------------
+// -------------------- PDF.js Setup --------------------
 pdfjsLib.GlobalWorkerOptions.workerSrc = './pdf.worker.mjs';
 const pdfUrl = 'irpg.pdf';
 let pdfDoc = null;
 
+// DOM Elements
 const tocNav = document.getElementById('tocNav');
 const recentNav = document.getElementById('recentNav');
 const bookmarkNav = document.getElementById('bookmarkNav');
 const pdfContainer = document.querySelector('.pdf-pages');
 const notesArea = document.querySelector('textarea');
 
+// -------------------- SECTION PAGES --------------------
+// Edit this object to change page ranges per IRPG section.
+// Key = Section Title, Value = Array of 1-indexed pages
+const SECTION_PAGES = {
+  "Size-Up Report": [5,6,7],
+  "Risk Management Process": [8,9,10],
+  "LCES": [11,12,13],
+  "Downhill Fireline Construction": [14,15],
+  // Add additional IRPG sections here
+};
+
 // -------------------- Load PDF and Build TOC --------------------
 async function loadPDF() {
   pdfDoc = await pdfjsLib.getDocument(pdfUrl).promise;
-
-  // Fetch outline (PDF table of contents)
+  
+  // Try to use PDF outline
   const outline = await pdfDoc.getOutline();
-
-  // Build TOC in sidebar
   buildTOC(outline, tocNav);
 }
 
-// Recursive function to build nested TOC buttons
-function buildTOC(items, container, level=0) {
-  if(!items) return;
-
-  items.forEach(item => {
-    const btn = document.createElement('button');
-    btn.textContent = item.title;
-    btn.classList.add(level>0?'nested':'');
-
-    // -------------------- What happens when TOC item clicked --------------------
-    btn.onclick = async () => {
-      const dest = await pdfDoc.getDestination(item.dest);
-      let pageNumbers = [];
-
-      // Determine page numbers from destination
-      if(dest && dest[0] && typeof dest[0] === 'object' && 'num' in dest[0]) {
-        pageNumbers = [dest[0].num];
-      } else if(dest && typeof dest[0] === 'number') {
-        pageNumbers = [dest[0]+1]; // PDF.js pages start at 1
-      }
-
-      renderPages(pageNumbers);
-      addRecent(item.title); // Track recently viewed sections
-    };
-
-    container.appendChild(btn);
-
-    // Recursively add nested items
-    if(item.items && item.items.length) {
-      buildTOC(item.items, container, level+1);
-    }
-  });
-}
-
-// -------------------- Render PDF Pages --------------------
+// -------------------- Render Multiple Pages --------------------
 async function renderPages(pageNumbers) {
   pdfContainer.innerHTML = '';
   for(const p of pageNumbers) {
@@ -168,13 +148,44 @@ async function renderPages(pageNumbers) {
   }
 }
 
+// -------------------- Build Table of Contents --------------------
+function buildTOC(items, container, level=0) {
+  if(!items) return;
+
+  items.forEach(item => {
+    const btn = document.createElement('button');
+    btn.textContent = item.title;
+    if(level>0) btn.classList.add('nested');
+
+    // -------------------- Click TOC Item --------------------
+    btn.onclick = async () => {
+      let pages = SECTION_PAGES[item.title];
+
+      // Fallback if section not in SECTION_PAGES
+      if(!pages && item.dest) {
+        const dest = await pdfDoc.getDestination(item.dest);
+        if(dest && typeof dest[0] === 'number') pages = [dest[0]+1];
+        else pages = [1];
+      }
+
+      renderPages(pages);
+      addRecent(item.title);
+    };
+
+    container.appendChild(btn);
+
+    // Recursively add nested outline items
+    if(item.items && item.items.length) buildTOC(item.items, container, level+1);
+  });
+}
+
 // -------------------- Recent Sections --------------------
 function addRecent(title) {
-  let r = JSON.parse(localStorage.getItem('recent')||'[]');
-  r = r.filter(x=>x!==title); // remove duplicates
-  r.unshift(title);
-  r = r.slice(0,5); // keep last 5
-  localStorage.setItem('recent',JSON.stringify(r));
+  let recent = JSON.parse(localStorage.getItem('recent')||'[]');
+  recent = recent.filter(x=>x!==title);
+  recent.unshift(title);
+  recent = recent.slice(0,5); // Keep last 5
+  localStorage.setItem('recent',JSON.stringify(recent));
   renderRecent();
 }
 
@@ -193,9 +204,9 @@ function renderRecent() {
 
 // -------------------- Bookmarks --------------------
 function toggleBookmark(title) {
-  let b = JSON.parse(localStorage.getItem('bookmarks')||'[]');
-  b.includes(title)? b=b.filter(x=>x!==title) : b.push(title);
-  localStorage.setItem('bookmarks',JSON.stringify(b));
+  let bookmarks = JSON.parse(localStorage.getItem('bookmarks')||'[]');
+  bookmarks.includes(title) ? bookmarks = bookmarks.filter(x=>x!==title) : bookmarks.push(title);
+  localStorage.setItem('bookmarks',JSON.stringify(bookmarks));
   renderBookmarks();
 }
 
@@ -212,7 +223,7 @@ function renderBookmarks() {
   });
 }
 
-// -------------------- Notes Persistence --------------------
+// -------------------- Notes --------------------
 notesArea.value = localStorage.getItem('notes')||'';
 notesArea.addEventListener('input',()=>localStorage.setItem('notes',notesArea.value));
 
